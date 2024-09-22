@@ -34,9 +34,9 @@ end
 
 
 # if computing adjoint adj = 1 else -1
-function assemble_stiffness!(adj, Ne, Nbasis, p, x, k, a, I, J, V)
+function assemble_stiffness!(adj, Ne, Nbasis, p, x, k, a, I, J, V; mod_sparsity=true)
+
     nstart = 1
-    # global stiffness matrix assembly
     for e in 1:Ne
         for i in 1:Nbasis
             row = (p*e) + (i-p)
@@ -50,13 +50,17 @@ function assemble_stiffness!(adj, Ne, Nbasis, p, x, k, a, I, J, V)
                 v_adv = gauss_integrate(lb, dlb, i, a, j, x[nstart : nstart + p])
                 
                 idx = in_COO(I, J, row, col)
-
-                if idx > 0
-                    V[idx] += (v_diff + adj * v_adv)
+                
+                if mod_sparsity
+                    if idx > 0 
+                        V[idx] += (v_diff + adj * v_adv)
+                    else
+                        push!(I, row)
+                        push!(J, col)
+                        push!(V, v_diff + adj * v_adv)
+                    end
                 else
-                    push!(I, row)
-                    push!(J, col)
-                    push!(V, v_diff + adj * v_adv)
+                    V[idx] += (v_diff + adj * v_adv)
                 end
             end
         end
@@ -168,18 +172,19 @@ end
 let
 
     # number of elements
-    Ne = 5
+    Ne = 100
     # basis order
     p = 4
     # number of nodes
     N = p*Ne + 1
     # domain boudarys [L, R]
-    L = 1
-    R = 2
+    L = 0
+    R = 1
     # length of element
     h = (R-L)/(N-1)
     # nodes
     x = collect(L:h:R)
+    xfine = collect(L:.01:R)
     # number basis functions
     Nbasis = p + 1
 
@@ -188,7 +193,7 @@ let
     # @assert isapprox(gauss_integrate(dlb, dlb, 1, integration_test, 3, [-1.0, 0.0 , 1.0]), 0.0, atol=1e-16)
 
     #---- testing forward model ----#
-    #=
+#=
     # COO for global matrix
     I = Int64[]
     J = Int64[]
@@ -210,50 +215,60 @@ let
     u = A_test\F
     ue = u_exact.(x)
     error = abs.(ue - u)
-    display(plot(x, u, label="numerical"))
-    display(plot!(x, ue, label="exact"))
-    display(plot!(x, error, label="error"))
-    =#
-
+    plot(x, u, label="numerical")
+#    display(plot!(x, ue, label="exact"))
+#    display(plot!(x, error, label="error"))
+=#
     #---- Solving inverse problem ----#
     
     I = Int64[]
     J = Int64[]
     V_forward = Float64[]
-    V_inverse = Float64[]
 
     # assemble forward and adjoint stiffness
     assemble_stiffness!(-1, Ne, Nbasis, p, x, one, a_exact, I, J, V_forward)
-    assemble_stiffness!(1, Ne, Nbasis, p, x, one, a_exact, I, J, V_inverse)
+    V_adjoint = zeros(length(I))
+    assemble_stiffness!(1, Ne, Nbasis, p, x, one, a_exact, I, J, V_adjoint, mod_sparsity=false)
     A_forward = sparse(I, J, V_forward, N, N)
-    A_inverse = sparse(I, J, V_inverse, N, N)
-    
+    A_adjoint = sparse(I, J, V_adjoint, N, N)
+
     # forcing vector
     F_forward = zeros(N)
-    F_inverse = zeros(N)
+    F_adjoint = zeros(N)
     assemble_forcing!(Ne, Nbasis, p, x, forcing, F_forward)
-    enforce_boundary!(A_test, F_forward)
+    enforce_boundary!(A_forward, F_forward)
     
     # initial guess 
     k_iter = ones(N)
     u_iter = zeros(N)
-    u_adj = zeros(N)
+    u_adjoint = zeros(N)
     u_data = u_exact.(x)
-
+    error = zeros(N)
     # what is a good stopping criteria here?
     descent_iter = 1
     for i in 1:descent_iter
 
         # forward solve
         u_iter .= A_forward\F_forward
+
+        plot(xfine, [expansion(val, p, u_iter, x) for val in xfine], label="u_iter")
+        # display(plot!(xfine, [expansion(val, p, u_data, x) for val in xfine], label="u_data"))
+        error .= u_iter - u_data
+        # display(plot!(xfine, [expansion(val, p, error, x) for val in xfine], label="error"))
+        
         assemble_forcing!(Ne,
                           Nbasis,
                           p,
                           x,
-                          val -> (expansion(val, p, u_iter, x) -
-                              expansion(val, p, u_data, x)),
-                          F_inverse)
+                          val -> expansion(val, p, error, x),
+                          F_adjoint)
+
+        display(sum(F_adjoint))
+        u_adjoint .= A_adjoint\F_adjoint
+        #plot!(x, u_iter, label="forward")
+        #display(plot(x,u_adjoint, label="adjoint"))
     end
+    
     nothing
     
 end
