@@ -5,7 +5,8 @@ using SparseArrays
 using LinearAlgebra
 using DataStructures
 
-### gaussian integration of func1 x func2 (interpolating basis function i and j on nodes) x param 
+### gaussian integration of func1 x func2 (interpolating basis function i and j on nodes) x param
+# weights and nodes pulled from: https://pomax.github.io/bezierinfo/legendre-gauss.html
 function gauss_integrate(func1, func2, i, param, j, nodes)
 
     weights = [0.6521451548625461
@@ -74,7 +75,7 @@ function assemble_forcing!(Ne, Nbasis, p, x, forcing, F)
     for e in 1:Ne
         for i in 1:Nbasis
             row = (p*e) + (i-p)
-            F[row] = gauss_integrate(lb, one, i, forcing, i, x[nstart : nstart + p])
+            F[row] += gauss_integrate(lb, one, i, forcing, i, x[nstart : nstart + p])
         end
         nstart += p
     end
@@ -138,12 +139,12 @@ integration_test(x) = x
 
 # parameters for testing
 # second set is without any advection, or variable coefficents
-forcing_exact(x) = x - mms(x) #1.0
+forcing_exact(x) = x - mms(x) #1.0 
 forcing(x) = x
 mms(x) = 1/4*(x^2 - 2x^4) #0.0
 k_exact(x) = 1/x #1.0
 a_exact(x) = x  # 0.0
-u_exact(x) = -1/8 * x^4 + 1/8 * x^2 #-1/2 * x^2 + 5*x
+u_exact(x) = -1/8 * x^4 + 1/8 * x^2 # #-1/2 * x^2 + 5*x
 
 # p order lagrangian basis expansion with current coords at x
 function expansion(x, p, coords, n_global)
@@ -174,7 +175,7 @@ let
     # number of elements
     Ne = 100
     # basis order
-    p = 4
+    p = 3
     # number of nodes
     N = p*Ne + 1
     # domain boudarys [L, R]
@@ -193,7 +194,7 @@ let
     # @assert isapprox(gauss_integrate(dlb, dlb, 1, integration_test, 3, [-1.0, 0.0 , 1.0]), 0.0, atol=1e-16)
 
     #---- testing forward model ----#
-#=
+
     # COO for global matrix
     I = Int64[]
     J = Int64[]
@@ -210,17 +211,16 @@ let
     
     # sparsity pattern sanity check
     # display(spy(A_test))
-    
     # convergence sanity check
-    u = A_test\F
+    u = (A_test\F)
     ue = u_exact.(x)
     error = abs.(ue - u)
     plot(x, u, label="numerical")
-#    display(plot!(x, ue, label="exact"))
-#    display(plot!(x, error, label="error"))
-=#
+    display(plot!(x, ue, label="exact"))
+    display(plot!(x, error, label="error"))
+
     #---- Solving inverse problem ----#
-    
+    #=    
     I = Int64[]
     J = Int64[]
     V_forward = Float64[]
@@ -267,8 +267,8 @@ let
         u_adjoint .= A_adjoint\F_adjoint
         #plot!(x, u_iter, label="forward")
         #display(plot(x,u_adjoint, label="adjoint"))
-    end
-    
+   end
+   =#    
     nothing
     
 end
