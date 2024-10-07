@@ -49,7 +49,7 @@ function assemble_stiffness!(adj, Ne, Nbasis, p, x, k, a, I, J, V; mod_sparsity=
                 # guessing a one function for now
                 v_diff = gauss_integrate(dlb, dlb, i, k, j, x[nstart : nstart + p])
                 v_adv = gauss_integrate(lb, dlb, i, a, j, x[nstart : nstart + p])
-                
+
                 idx = in_COO(I, J, row, col)
                 
                 if mod_sparsity
@@ -135,7 +135,6 @@ dlb(x, j, nodes) = ForwardDiff.derivative(x -> lb(x, j, nodes), x)
 
 one(x, j, n) = 1.0
 one(x) = 1.0
-integration_test(x) = x
 
 # parameters for testing
 # second set is without any advection, or variable coefficents
@@ -143,7 +142,7 @@ forcing_exact(x) = x - mms(x) #1.0
 forcing(x) = x
 mms(x) = 1/4*(x^2 - 2x^4) #0.0
 k_exact(x) = 1/x #1.0
-a_exact(x) = x  # 0.0
+a_exact(x) = 0  # 0.0
 u_exact(x) = -1/8 * x^4 + 1/8 * x^2 # #-1/2 * x^2 + 5*x
 
 # p order lagrangian basis expansion with current coords at x
@@ -175,7 +174,7 @@ let
     # number of elements
     Ne = 100
     # basis order
-    p = 3
+    p = 1
     # number of nodes
     N = p*Ne + 1
     # domain boudarys [L, R]
@@ -195,6 +194,7 @@ let
 
     #---- testing forward model ----#
 
+    #=
     # COO for global matrix
     I = Int64[]
     J = Int64[]
@@ -211,6 +211,7 @@ let
     
     # sparsity pattern sanity check
     # display(spy(A_test))
+    
     # convergence sanity check
     u = (A_test\F)
     ue = u_exact.(x)
@@ -218,9 +219,10 @@ let
     plot(x, u, label="numerical")
     display(plot!(x, ue, label="exact"))
     display(plot!(x, error, label="error"))
-
+    =#
+    
     #---- Solving inverse problem ----#
-    #=    
+
     I = Int64[]
     J = Int64[]
     V_forward = Float64[]
@@ -237,38 +239,48 @@ let
     F_adjoint = zeros(N)
     assemble_forcing!(Ne, Nbasis, p, x, forcing, F_forward)
     enforce_boundary!(A_forward, F_forward)
-    
+
+
     # initial guess 
     k_iter = ones(N)
     u_iter = zeros(N)
     u_adjoint = zeros(N)
     u_data = u_exact.(x)
-    error = zeros(N)
+    u_error = zeros(N)
+    ue =  u_exact.(x)
+    
     # what is a good stopping criteria here?
     descent_iter = 1
     for i in 1:descent_iter
 
         # forward solve
         u_iter .= A_forward\F_forward
-
-        plot(xfine, [expansion(val, p, u_iter, x) for val in xfine], label="u_iter")
-        # display(plot!(xfine, [expansion(val, p, u_data, x) for val in xfine], label="u_data"))
-        error .= u_iter - u_data
-        # display(plot!(xfine, [expansion(val, p, error, x) for val in xfine], label="error"))
+        u_error .= u_iter - u_data
         
         assemble_forcing!(Ne,
                           Nbasis,
                           p,
                           x,
-                          val -> expansion(val, p, error, x),
+                          val -> expansion(val, p, u_error, x),
                           F_adjoint)
-
-        display(sum(F_adjoint))
+        
+        enforce_boundary!(A_adjoint, F_adjoint)
         u_adjoint .= A_adjoint\F_adjoint
-        #plot!(x, u_iter, label="forward")
-        #display(plot(x,u_adjoint, label="adjoint"))
-   end
-   =#    
+
+        
+        # alternatively (and would save a lot of memory) the adjoint operator is just A_forward transpose,
+        # and can instead  be used.
+        # enforce_boundary!(A_forward', F_adjoint)
+        # u_adjoint2 = (A_forward')\F_adjoint
+        # display(plot(x, u_adjoint2, label="transpose adjoint"))
+
+        
+        plot(x, u_error, label="error")
+        plot!(x, u_iter, label="estimate")
+        plot!(x, ue, label="exact")
+        display(plot!(x,u_adjoint, label="adjoint"))
+        
+    end
     nothing
     
 end
