@@ -5,9 +5,10 @@ using SparseArrays
 using LinearAlgebra
 using DataStructures
 
-### gaussian integration of func1 x func2 (interpolating basis function i and j on nodes) x param
-# weights and nodes pulled from: https://pomax.github.io/bezierinfo/legendre-gauss.html
-function gauss_integrate(func1, func2, i, param, j, nodes)
+### gaussian integration of func1 x func2 x func3 with args for each function
+# weights and abscissa pulled from: https://pomax.github.io/bezierinfo/legendre-gauss.html
+function gauss_integrate(element, func1, func2, func3)
+
 
     weights = [0.6521451548625461
                0.6521451548625461
@@ -20,24 +21,48 @@ function gauss_integrate(func1, func2, i, param, j, nodes)
     	        0.8611363115940526]
 
     val = 0.0
-    scale = (nodes[end] - nodes[1]) * .5
-    c = (nodes[end] + nodes[1]) * .5
+    scale = (element[end] - element[1]) * .5
+    c = (element[end] + element[1]) * .5
 
     for l in 1:length(weights)
-        val += weights[l] * func1(scale * abscissa[l] + c, i, nodes) *
-            param(scale * abscissa[l] + c) * 
-            func2(scale * abscissa[l] + c, j, nodes)
+        val += weights[l] *
+            func1(scale * abscissa[l] + c) *
+            func2(scale * abscissa[l] + c) * 
+            func3(scale * abscissa[l] + c)
     end
 
     return scale *  val
     
 end
 
+# Wrapper for gauss_integrate that integrates the whole domain x
+function domain_integrate!(Ne, Nbasis, p, x, u, func1, func2, func3)
+    for e in 1:Ne
+        nodes = EToN(e, p, x)
+        for i in 1:Nbasis
+            u[i] += gauss_integrate(nodes, func1, func2, val -> func3(val, i))
+        end
+    end
+    display(u)
+end
 
-# if computing adjoint adj = 1 else -1
-function assemble_stiffness!(adj, Ne, Nbasis, p, x, k, a, I, J, V; mod_sparsity=true)
-
-    nstart = 1
+#=
+This function assembles a discrete diffusion and advection operator from the basis functions:
+    Ne: number of elements
+    Nbasis: number of basis functions per element = p + 1 (might not need to be carrying this around
+    p: order of basis
+    x: the (1d grid)
+    k: diffusivity function, can be known or
+       a guess if doing the inverse problem
+    a: advection coefficent
+    I: non zero row indices
+    J: non zero column indices
+    V_: non zero values (different for diffusion and advection
+=#
+function assemble_matrices!(Ne, Nbasis, p,
+                          x, k, a,
+                          I, J,
+                          Vdiff, Vadv)
     for e in 1:Ne
         for i in 1:Nbasis
             row = (p*e) + (i-p)
@@ -47,25 +72,22 @@ function assemble_stiffness!(adj, Ne, Nbasis, p, x, k, a, I, J, V; mod_sparsity=
                 # in the forward problem if we know k (or a??) we can just plug it in here
                 # in the inverse problem we don't know it so we start with a guess here
                 # guessing a one function for now
-                v_diff = gauss_integrate(dlb, dlb, i, k, j, x[nstart : nstart + p])
-                v_adv = gauss_integrate(lb, dlb, i, a, j, x[nstart : nstart + p])
-
+                nodes = EToN(e, p, x)
+                v_diff = gauss_integrate(nodes, x -> dlb(x, i, nodes) , x -> dlb(x, j, nodes), k)
+                v_adv = gauss_integrate(nodes, x -> lb(x, i, nodes), x -> dlb(x, j, nodes), a)
                 idx = in_COO(I, J, row, col)
                 
-                if mod_sparsity
-                    if idx > 0 
-                        V[idx] += (v_diff + adj * v_adv)
-                    else
-                        push!(I, row)
-                        push!(J, col)
-                        push!(V, v_diff + adj * v_adv)
-                    end
+                if idx > 0 
+                    Vdiff[idx] += v_diff
+                    Vadv[idx] += v_adv
                 else
-                    V[idx] += (v_diff + adj * v_adv)
+                    push!(I, row)
+                    push!(J, col)
+                    push!(Vdiff, v_diff)
+                    push!(Vadv, v_adv)
                 end
             end
         end
-        nstart += p
     end
 end
 
@@ -75,12 +97,12 @@ function assemble_forcing!(Ne, Nbasis, p, x, forcing, F)
     for e in 1:Ne
         for i in 1:Nbasis
             row = (p*e) + (i-p)
-            F[row] += gauss_integrate(lb, one, i, forcing, i, x[nstart : nstart + p])
+            nodes = EToN(e, p, x)
+            F[row] += gauss_integrate(nodes, x -> lb(x, i, nodes), forcing, one)
         end
         nstart += p
     end
 end
-
 
 # need to generalize to neumann, etc...
 function enforce_boundary!(A, F)
@@ -142,7 +164,7 @@ forcing_exact(x) = x - mms(x) #1.0
 forcing(x) = x
 mms(x) = 1/4*(x^2 - 2x^4) #0.0
 k_exact(x) = 1/x #1.0
-a_exact(x) = 0  # 0.0
+a_exact(x) = x  # 0.0
 u_exact(x) = -1/8 * x^4 + 1/8 * x^2 # #-1/2 * x^2 + 5*x
 
 # p order lagrangian basis expansion with current coords at x
@@ -169,14 +191,17 @@ function XToN(x, p, nodes)
     return e, nodes[1 + (e-1) * p : 1 + e*p]
 end
 
-let
+EToN(e, p, nodes) = nodes[(e-1)*p + 1 : (e-1)*p + p + 1]
 
+let
+    
     # number of elements
     Ne = 100
     # basis order
-    p = 1
+    p = 3
     # number of nodes
     N = p*Ne + 1
+    @show N
     # domain boudarys [L, R]
     L = 0
     R = 1
@@ -198,11 +223,11 @@ let
     # COO for global matrix
     I = Int64[]
     J = Int64[]
-    V_test = Float64[]
-
+    Vdiff = Float64[]
+    Vadv = Float64[]
     #stiffness matrix
-    assemble_stiffness!(-1, Ne, Nbasis, p, x, k_exact, a_exact, I, J, V_test)
-    A_test = sparse(I, J, V_test, N, N)
+    assemble_matrices!(Ne, Nbasis, p, x, k_exact, a_exact, I, J, Vdiff, Vadv)
+    A_test = sparse(I, J, Vdiff - Vadv, N, N)
 
     # forcing vector
     F = zeros(N)
@@ -225,36 +250,38 @@ let
 
     I = Int64[]
     J = Int64[]
-    V_forward = Float64[]
-
+    Vdiff = Float64[]
+    Vadv = Float64[]
+    
     # assemble forward and adjoint stiffness
-    assemble_stiffness!(-1, Ne, Nbasis, p, x, one, a_exact, I, J, V_forward)
-    V_adjoint = zeros(length(I))
-    assemble_stiffness!(1, Ne, Nbasis, p, x, one, a_exact, I, J, V_adjoint, mod_sparsity=false)
-    A_forward = sparse(I, J, V_forward, N, N)
-    A_adjoint = sparse(I, J, V_adjoint, N, N)
-
+    assemble_matrices!(Ne, Nbasis, p, x, one, a_exact, I, J, Vdiff, Vadv)
+    M = sparse(I, J, Vadv, N, N)
+    A_forward = sparse(I, J, Vdiff - Vadv, N, N)
+    A_adjoint = sparse(I, J, Vdiff + Vadv, N, N)
+    
     # forcing vector
     F_forward = zeros(N)
     F_adjoint = zeros(N)
     assemble_forcing!(Ne, Nbasis, p, x, forcing, F_forward)
     enforce_boundary!(A_forward, F_forward)
 
-
-    # initial guess 
+    # initial guess
     k_iter = ones(N)
     u_iter = zeros(N)
+    u_iter_grad = zeros(N)
+    u_adjoint_grad = zeros(N)
     u_adjoint = zeros(N)
     u_data = u_exact.(x)
     u_error = zeros(N)
+    dJda = zeros(N)
     ue =  u_exact.(x)
-    
+
     # what is a good stopping criteria here?
     descent_iter = 1
     for i in 1:descent_iter
 
         # forward solve
-        u_iter .= A_forward\F_forward
+        u_iter .= (A_forward)\F_forward
         u_error .= u_iter - u_data
         
         assemble_forcing!(Ne,
@@ -265,22 +292,30 @@ let
                           F_adjoint)
         
         enforce_boundary!(A_adjoint, F_adjoint)
-        u_adjoint .= A_adjoint\F_adjoint
+        u_adjoint .= (A_adjoint)\F_adjoint
 
+        u_iter_grad .= M * u_iter
+        u_adjoint_grad .= M * u_adjoint
         
+        domain_integrate!(Ne, Nbasis, p, x, dJda, val -> expansion(val, p, u_iter_grad, x),
+                         val -> expansion(val, p, u_adjoint_grad, x),
+                         (val, node)-> lb(val, node, x))
+            
         # alternatively (and would save a lot of memory) the adjoint operator is just A_forward transpose,
         # and can instead  be used.
         # enforce_boundary!(A_forward', F_adjoint)
         # u_adjoint2 = (A_forward')\F_adjoint
         # display(plot(x, u_adjoint2, label="transpose adjoint"))
 
-        
         plot(x, u_error, label="error")
         plot!(x, u_iter, label="estimate")
         plot!(x, ue, label="exact")
         display(plot!(x,u_adjoint, label="adjoint"))
-        
+        #plot!(x, u_iter_grad, label="u_iter_grad")
+        #display(plot!(x, dJda, label="dJda"))
+
     end
+
     nothing
-    
+
 end
