@@ -190,7 +190,7 @@ EToN(e, p, nodes) = nodes[(e-1)*p + 1 : (e-1)*p + p + 1]
 let
     
     # number of elements
-    Ne = 5
+    Ne = 256
     # basis order
     p = 1
     # number of nodes
@@ -273,7 +273,7 @@ let
     
     A_forward = sparse(I, J, Vdiff - Vadv, N, N)
     A_adjoint = sparse(I, J, Vdiff + Vadv, N, N)
-    display(A_forward)
+    #display(A_forward)
     # forcing vector
     F_forward = zeros(N)
     F_adjoint = zeros(N)
@@ -293,12 +293,16 @@ let
 
     step_size = .001
     # what is a good stopping criteria here?
-    descent_iter = 1
+    descent_iter = 400
     for i in 1:descent_iter
 
         # forward solve
         u_iter .= (A_forward)\F_forward
         u_error .= u_iter - u_data
+
+        #plot!(x, u_error, label="error")
+        #plot!(x, u_iter, label="estimate")
+        #display(plot!(x, u_data, label="exact"))
         
         assemble_forcing!(Ne,
                           Nbasis,
@@ -320,10 +324,12 @@ let
         assemble_matrix!(Ne, Nbasis, p,
                          x, dlb, dlb, val -> expansion(val, p, k_iter, x),
                          I, J, Vdiff)
+
         A_forward.nzval .= Vdiff - Vadv
         A_adjoint.nzval .= Vdiff + Vadv
-        
-        display(A_forward)
+        enforce_boundary!(A_forward, F_forward)
+        enforce_boundary!(A_adjoint, F_adjoint)
+        #display(A_forward)
         
         
         # domain_integrate!(Ne, Nbasis, p, x, dJda,
@@ -351,8 +357,8 @@ let
         p3 = plot(x, k_iter, label="k")
         display(plot(p1, p3, p2, p4))
         
-        sleep(.5)
-        
+        sleep(.005)
+
     end
 
     nothing
