@@ -87,13 +87,13 @@ function assemble_matrix!(Ne, Nbasis, p,
     end
 end
 
-function assemble_forcing!(Ne, Nbasis, p, x, func, forcing, F)
+function assemble_forcing!(Ne, Nbasis, p, x, func1, func2, forcing, F)
     # global stiffness matrix assembly
     for e in 1:Ne
         nodes = EToN(e, p, x)
         for i in 1:Nbasis
             row = (p*e) + (i-p)
-            F[row] += gauss_integrate(nodes, x -> func(x, i, nodes), forcing, one)
+            F[row] += gauss_integrate(nodes, x -> func1(x, i, nodes), forcing, func2)
         end
     end
 end
@@ -157,7 +157,7 @@ one(x) = 1.0
 forcing_exact(x) = 1.0 
 forcing(x) = 1.0
 # mms(x) = 1/4*(x^2 - 2x^4)
-k_exact(x) = 1.0
+k_exact(x) = 2.0
 a_exact(x) = 0.0
 u_exact(x) = (1/(2 .* k_exact.(x))) * (x - x^2)
 
@@ -271,6 +271,7 @@ let
     A_forward = sparse(I, J, Vdiff - Vadv, N, N)
     F_sense = zeros(N)
     =#
+    #=
     plt = plot()
     for e in 1:Ne
         for i in 1:Nbasis
@@ -285,12 +286,14 @@ let
             end
         end
     end
-    display(plt)
-
-    #assemble_forcing!(Ne, Nbasis, p, x, forcing, F_forward)
+    
+    for i in 1:N
+        assemble_forcing!(Ne, Nbasis, p, x, lb, F_forward)
+    end
+    =#
 #end
 
-    #=
+
     #---- Solving inverse problem ----#
 
     I = Int64[]
@@ -327,8 +330,8 @@ let
 
     # forcing vector
     F_forward = zeros(N)
-    F_adjoint = zeros(N
-    assemble_forcing!(Ne, Nbasis, p, x, forcing, F_forward)
+    F_adjoint = zeros(N)
+    assemble_forcing!(Ne, Nbasis, p, x, lb, one, forcing, F_forward)
     enforce_boundary!(A_forward, F_forward)
 
     # initial guess
@@ -344,7 +347,7 @@ let
 
     step_size = .001
     # what is a good stopping criteria here?
-    descent_iter = 10
+    descent_iter = 1000
     for i in 1:descent_iter
 
         # forward solve
@@ -359,6 +362,8 @@ let
                           Nbasis,
                           p,
                           x,
+                          lb,
+                          one,
                           val -> expansion(val, p, u_error, x),
                           F_adjoint)
         
@@ -375,7 +380,7 @@ let
 
         =#
 
-        k_iter .= k_iter .- step_size * dJdk
+        k_iter .= k_iter .+ step_size * dJdk
 
         # reassemble forward and adjoint operators (this is probably a horrible way of doing this...)
         Vdiff .= 0
@@ -415,9 +420,9 @@ let
         plot!(p2, x, u_adjoint_grad, label="u_adjoint_grad")
         p3 = plot(x, k_iter, label="k")
         display(plot(p1, p3, p2, p4))
-        #sleep(.01)
+        sleep(.05)
     end
-    =#
+
     
     nothing
 
