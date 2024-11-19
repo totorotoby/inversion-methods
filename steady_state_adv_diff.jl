@@ -85,8 +85,7 @@ function assemble_matrix!(Ne, Nbasis, p,
     end
 end
 
-function assemble_forcing!(Ne, Nbasis, func, p, x, forcing, F)
-    nstart = 1
+function assemble_forcing!(Ne, Nbasis, p, x, func, forcing, F)
     # global stiffness matrix assembly
     for e in 1:Ne
         nodes = EToN(e, p, x)
@@ -94,20 +93,6 @@ function assemble_forcing!(Ne, Nbasis, func, p, x, forcing, F)
             row = (p*e) + (i-p)
             F[row] += gauss_integrate(nodes, x -> func(x, i, nodes), forcing, one)
         end
-        nstart += p
-    end
-end
-
-function assemble_forcing!(Ne, Nbasis, p, x, forcing, F)
-    nstart = 1
-    # global stiffness matrix assembly
-    for e in 1:Ne
-        nodes = EToN(e, p, x)
-        for i in 1:Nbasis
-            row = (p*e) + (i-p)
-            F[row] += gauss_integrate(nodes, forcing, one)
-        end
-        nstart += p
     end
 end
 
@@ -241,10 +226,10 @@ let
     #Vadv = zeros(length(Vdiff))
     #assemble_matrix!(Ne, Nbasis, p, x, lb, dlb, a_exact, I, J, Vadv)
     A_test = sparse(I, J, Vdiff, N, N)
-
+    
     # forcing vector
     F = zeros(N)
-    assemble_forcing!(Ne, Nbasis, p, x, forcing_exact, F)
+    assemble_forcing!(Ne, Nbasis, p, x, lb, forcing_exact, F)
     enforce_boundary!(A_test, F)
 
     
