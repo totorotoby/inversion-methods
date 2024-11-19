@@ -6,8 +6,11 @@ using LinearAlgebra
 using Statistics
 using DataStructures
 
-### gaussian integration of funcs multiplied together with args for each function
-# weights and abscissa pulled from: https://pomax.github.io/bezierinfo/legendre-gauss.html
+#=
+gaussian integration of funcs multiplied together with args for each function
+weights and abscissa pulled from: https://pomax.github.io/bezierinfo/legendre-gauss.html
+element - list of at least the start and end nodes of the element to integrate over
+=#
 function gauss_integrate(element, funcs...)
 
     weights = [0.6521451548625461
@@ -27,7 +30,6 @@ function gauss_integrate(element, funcs...)
     for l in 1:length(weights)
         val += weights[l] * 
             reduce(*, [f(scale * abscissa[l] + c) for f in funcs])
-        #@show reduce(*, [f(scale * abscissa[l] + c) for f in funcs])
     end
     return scale *  val
 end
@@ -216,7 +218,7 @@ let
 
     #---- testing forward model ----#
 
-    
+    #=
     # COO for global matrix
     I = Int64[]
     J = Int64[]
@@ -232,7 +234,6 @@ let
     assemble_forcing!(Ne, Nbasis, p, x, lb, forcing_exact, F)
     enforce_boundary!(A_test, F)
 
-    
     # sparsity pattern sanity check
     # display(spy(A_test))
     
@@ -243,7 +244,8 @@ let
     plot(x, u, label="numerical")
     plot!(x, ue, label="exact")
     display(plot!(x, error, label="error"))
-
+    =#
+    
     #---- Plot basis ----#
     #=
     plt = plot()
@@ -268,24 +270,23 @@ let
     assemble_matrix!(Ne, Nbasis, p, x, lb, dlb, a_exact, I, J, Vadv)
     A_forward = sparse(I, J, Vdiff - Vadv, N, N)
     F_sense = zeros(N)
-
+    =#
     plt = plot()
-    for e in 1:1
-        for i in 1:1
-            for j in 1:1
+    for e in 1:Ne
+        for i in 1:Nbasis
+            for j in 1:Nbasis
                 e_nodes = EToN(e,p, x)
-                integral = gauss_integrate(e, (x -> lb(x, i, e_nodes)), (x -> lb(x, j, e_nodes)))
+                integral = gauss_integrate(e_nodes, (x -> lb(x, i, e_nodes)), (x -> lb(x, j, e_nodes)))
                 llb1 = (x -> lb(x, i, e_nodes))
                 llb2 = (x -> lb(x, j, e_nodes))
                 xfine = e_nodes[1]:(e_nodes[end] - e_nodes[1])/100:e_nodes[end]
                 plt = plot!(xfine, llb1.(xfine), legend=false)
                 plt = plot!(xfine, llb2.(xfine), legend=false)
-                @show e, i, j, integral
             end
         end
     end
     display(plt)
-    =#
+
     #assemble_forcing!(Ne, Nbasis, p, x, forcing, F_forward)
 #end
 
