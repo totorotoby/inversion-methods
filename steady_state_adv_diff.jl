@@ -170,9 +170,9 @@ one(x) = 1.0
 forcing_exact(x) = 1.0 
 forcing(x) = 1.0
 # mms(x) = 1/4*(x^2 - 2x^4)
-k_exact(x) = 1.0 #1.0
+k_exact(x) = 1.0
 a_exact(x) = 0.0
-u_exact(x) = -1/2*(x - 1/2)^2 + 1/8 #(1/(2 .* k_exact.(x))) * (x - x^2)
+u_exact(x) = (1/(2 .* k_exact.(x))) * (x - x^2)
 
 # p order lagrangian basis expansion with current coords at x
 function expansion(x, p, coords, n_global)
@@ -187,7 +187,6 @@ function expansion(x, p, coords, n_global)
     
     return eval
 end
-
 
 # given point in domain, which element (nodes in element) is it in
 function XToN(x, p, nodes)
@@ -239,14 +238,15 @@ let
     Vdiff = Float64[]
     #stiffness matrix
     assemble_matrix!(Ne, Nbasis, p, x, dlb, dlb, k_exact, I, J, Vdiff)
-    Vadv = zeros(length(Vdiff))
-    assemble_matrix!(Ne, Nbasis, p, x, lb, dlb, a_exact, I, J, Vadv)
-    A_test = sparse(I, J, Vdiff - Vadv, N, N)
+    #Vadv = zeros(length(Vdiff))
+    #assemble_matrix!(Ne, Nbasis, p, x, lb, dlb, a_exact, I, J, Vadv)
+    A_test = sparse(I, J, Vdiff, N, N)
 
     # forcing vector
     F = zeros(N)
     assemble_forcing!(Ne, Nbasis, p, x, forcing_exact, F)
     enforce_boundary!(A_test, F)
+
     
     # sparsity pattern sanity check
     # display(spy(A_test))
@@ -258,8 +258,6 @@ let
     plot(x, u, label="numerical")
     plot!(x, ue, label="exact")
     display(plot!(x, error, label="error"))
-    
-
 
     #---- Plot basis ----#
     #=
@@ -274,6 +272,7 @@ let
     end
     display(plt)
     =#
+    
     #---- Sensitivity equations ----#
     #=
     I = Int64[]
